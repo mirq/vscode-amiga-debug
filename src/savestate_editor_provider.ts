@@ -52,7 +52,19 @@ class SavestateDocument implements vscode.CustomDocument {
 		let emuArgs: string[];
 		const config = new Map<string, string>();
 
-		if (process.platform === "win32") {
+		// Read emulator preference from workspace settings
+		const workspaceConfig = vscode.workspace.getConfiguration('amiga');
+		const emulatorType = workspaceConfig.get<string>('emulatorType', 'auto');
+		const useWinUae = emulatorType === 'winuae' || (emulatorType === 'auto' && process.platform === 'win32');
+		const useFsUae = emulatorType === 'fsuae' || (emulatorType === 'auto' && process.platform !== 'win32');
+
+		// Validate emulator choice for platform
+		if (process.platform !== 'win32' && emulatorType === 'winuae') {
+			void vscode.window.showErrorMessage('WinUAE is only available on Windows. Please use "auto" or "fsuae" in settings.');
+			return;
+		}
+
+		if (useWinUae) {
 			// write config
 			const configPath = path.join(binPath, "savestate.uae");
 			config.set('use_gui', 'no');
@@ -88,7 +100,7 @@ class SavestateDocument implements vscode.CustomDocument {
 
 			emuPath = path.join(binPath, "winuae-gdb.exe");
 			emuArgs = ['-portable', '-f', configPath];
-		} else {
+		} else if (useFsUae) {
 			config.set('automatic_input_grab', "0");
 			config.set('remote_debugger', "20");
 			config.set('remote_debugger_port', "2345");
@@ -103,7 +115,9 @@ class SavestateDocument implements vscode.CustomDocument {
 				config.set('state_dir', os.tmpdir());
 			}
 
-			emuPath = path.join(binPath, "fs-uae", "fs-uae");
+			emuPath = process.platform === "win32"
+				? path.join(binPath, "win32", "fs-uae", "fs-uae.exe")
+				: path.join(binPath, "fs-uae", "fs-uae");
 			emuArgs = [...config].map(([k, v]) => `--${k}=${v}`);
 		}
 

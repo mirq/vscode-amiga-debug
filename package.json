@@ -374,20 +374,30 @@
 									"1.8M"
 								]
 							},
-							"ntsc": {
-								"type": "boolean",
-								"description": "NTSC mode",
-								"default": false
+						"ntsc": {
+							"type": "boolean",
+							"description": "NTSC mode",
+							"default": false
+						},
+						"emulatorType": {
+							"type": "string",
+							"description": "Emulator to use (win32 only). 'auto' uses WinUAE on Windows, FS-UAE on other platforms.",
+							"default": "auto",
+							"enum": [
+								"auto",
+								"winuae",
+								"fsuae"
+							]
+						},
+						"emuargs": {
+							"type": "array",
+							"items": {
+								"type": "string",
+								"title": "argument"
 							},
-							"emuargs": {
-								"type": "array",
-								"items": {
-									"type": "string",
-									"title": "argument"
-								},
-								"description": "Addtional CLI arguments for emulator",
-								"default": []
-							}
+							"description": "Addtional CLI arguments for emulator",
+							"default": []
+						}
 						}
 					}
 				},
@@ -397,6 +407,7 @@
 						"request": "launch",
 						"name": "Ask for file name",
 						"config": "A500",
+						"emulatorType": "auto",
 						"program": "",
 						"kickstart": "<Enter path to KICKSTART 1.3 ROM here>"
 					}
@@ -410,6 +421,7 @@
 							"request": "launch",
 							"name": "Ask for file name",
 							"config": "A500",
+							"emulatorType": "auto",
 							"program": "",
 							"kickstart": "<Enter path to KICKSTART 1.3 ROM here>"
 						}
@@ -525,6 +537,21 @@
 						"type": "string",
 						"default": "out/a",
 						"description": "Path to the output program (without extension), relative to the workspace."
+					},
+					"amiga.emulatorType": {
+						"type": "string",
+						"default": "auto",
+						"enum": [
+							"auto",
+							"winuae",
+							"fsuae"
+						],
+						"enumDescriptions": [
+							"Use WinUAE on Windows, FS-UAE on other platforms (default)",
+							"Use WinUAE (Windows only)",
+							"Use FS-UAE"
+						],
+						"description": "Emulator to use for savestate viewer (win32 only). 'auto' uses WinUAE on Windows, FS-UAE on other platforms."
 					},
 					"amiga.rom-paths.A500": {
 						"type": "string",

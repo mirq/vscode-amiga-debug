@@ -38,6 +38,7 @@ interface LaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
 	fastmem?: string; // '0', '64k', '128k', '256k', '512k', '1M', '2M', '4M', '8M'
 	slowmem?: string; // '0', '512k', '1M', '1.8M'
 	ntsc?: boolean; // NTSC mode
+	emulatorType?: 'auto' | 'winuae' | 'fsuae'; // Emulator selection (win32 only)
 	emuargs?: string[]; // Additional CLI arguments for emulator
 }
 
@@ -206,7 +207,18 @@ export class AmigaDebugSession extends LoggingDebugSession {
 			return;
 		}
 
-		if (isWin) {
+		// Determine emulator type
+		const emulatorType = args.emulatorType || 'auto';
+		const useWinUae = emulatorType === 'winuae' || (emulatorType === 'auto' && isWin);
+		const useFsUae = emulatorType === 'fsuae' || (emulatorType === 'auto' && !isWin);
+
+		// Validate emulator choice for platform
+		if (!isWin && emulatorType === 'winuae') {
+			this.sendErrorResponse(response, 103, `WinUAE is only available on Windows. Use 'auto' or 'fsuae' on this platform.`);
+			return;
+		}
+
+		if (useWinUae) {
 			// WinUAE:
 
 			try {
@@ -367,7 +379,7 @@ export class AmigaDebugSession extends LoggingDebugSession {
 				this.sendErrorResponse(response, 103, `Unable to write emulator config ${defaultPath}.`);
 				return;
 			}
-		} else {
+		} else if (useFsUae) {
 			// FS-UAE:
 			switch(machine) {
 			case 'a1200-fast':
@@ -395,7 +407,7 @@ export class AmigaDebugSession extends LoggingDebugSession {
 			// video
 			config.set('ntsc_mode', args.ntsc ? '1' : '0');
 			// specify savestate dir so we don't overwrite user's default FS-UAE save slots
-			config.set('state_dir', path.join(binPath, "fs-uae"));
+			config.set('state_dir', isWin ? path.join(binPath, "win32", "fs-uae") : path.join(binPath, "fs-uae"));
 
 			if(args.kickstart !== undefined) {
 				config.set('kickstart_file', args.kickstart);
@@ -471,17 +483,19 @@ export class AmigaDebugSession extends LoggingDebugSession {
 			}
 		}
 
-		const emuPath = isWin
-			? path.join(binPath, "winuae-gdb.exe")
-			: path.join(binPath, "fs-uae", "fs-uae");
+		const emuPath = useFsUae
+			? (isWin
+				? path.join(binPath, "win32", "fs-uae", "fs-uae.exe")
+				: path.join(binPath, "fs-uae", "fs-uae"))
+			: path.join(binPath, "winuae-gdb.exe");
 
 		if(args.emuargs === undefined)
 			args.emuargs = [];
 
 		const emuArgs = [
-			...(isWin
+			...(useWinUae
 				// all WinUAE options now in config file
-				? [ '-portable' ]
+				? [ '-portable', '-f', defaultPath ]
 				// FS-UAE options as args
 				: [...config].map(([k, v]) => `--${k}=${v}`)),
 			...args.emuargs
@@ -547,7 +561,7 @@ export class AmigaDebugSession extends LoggingDebugSession {
 		}
 
 		// launch Emulator
-		const cwd = isWin
+		const cwd = useWinUae
 			? dirname(emuPath)
 			// CWD determines location for debug_save/debug_load on FS-UAE
 			: vscode.workspace.workspaceFolders[0].uri.fsPath;
