@@ -397,6 +397,26 @@
 							},
 							"description": "Addtional CLI arguments for emulator",
 							"default": []
+						},
+						"exeExt": {
+							"type": "string",
+							"description": "File extension for the Amiga HUNK executable. Defaults to '.exe'. Set to '' for no extension.",
+							"default": ".exe"
+						},
+						"dh0": {
+							"type": "string",
+							"description": "Override the boot volume (dh0:) path. When set, replaces the built-in dh0 directory. The s/startup-sequence in this directory is left untouched; you manage it entirely yourself.",
+							"default": ""
+						},
+						"dh1": {
+							"type": "string",
+							"description": "Override the dh1: volume path. When not set, defaults to the directory containing the executable.",
+							"default": ""
+						},
+						"stopOnEntry": {
+							"type": "boolean",
+							"description": "Automatically stop at the program entry point when launching.",
+							"default": false
 						}
 						}
 					}

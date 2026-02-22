@@ -6,6 +6,11 @@ See PR links for more information.
 ## 1.8.1
 - FIX: fix `GetVBR` for 68040 (thanks to Ferris and Sniper)
 - FIX: `Disassemble ELF File` now supports 68040 instructions
+- NEW: launch config `exeExt`: configurable Amiga HUNK executable extension (default: `.exe`, set to `""` for no extension)
+- NEW: launch config `dh0`: override built-in boot volume with your own directory; startup-sequence is left untouched
+- NEW: launch config `dh1`: override dh1: volume path (defaults to directory containing the executable)
+- NEW: support for running without debugger (Ctrl+F5 / `noDebug`): launches emulator without attaching GDB
+- NEW: launch config `stopOnEntry`: stop at program entry point instead of running automatically
 
 ## 1.8.0
 - NEW: update gcc to 15.1.0

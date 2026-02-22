@@ -28,7 +28,7 @@ const isWin = process.platform === "win32";
 
 interface LaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
 	config?: string; // A500 (default), A1200, etc.
-	program: string; // An absolute path to the "program" to debug. basename only; .elf and .exe will be added respectively to find ELF and Amiga-HUNK file
+	program: string; // An absolute path to the "program" to debug. basename only; .elf and exeExt will be added respectively to find ELF and Amiga-HUNK file
 	kickstart?: string; // An absolute path to a Kickstart ROM; if not specified, AROS will be used
 	cpuboard?: string; // An absolute path to a CPU Board Expansion ROM
 	endcli?: boolean;
@@ -40,6 +40,10 @@ interface LaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
 	ntsc?: boolean; // NTSC mode
 	emulatorType?: 'auto' | 'winuae' | 'fsuae'; // Emulator selection (win32 only)
 	emuargs?: string[]; // Additional CLI arguments for emulator
+	exeExt?: string; // Extension for the Amiga HUNK executable (default: '.exe', set to '' for no extension)
+	dh0?: string; // Override boot volume (dh0:) path; when set, replaces built-in dh0, startup-sequence is not touched
+	dh1?: string; // Override dh1: volume path; defaults to directory containing the executable
+	stopOnEntry?: boolean; // If true, stop at program entry point instead of running automatically
 }
 
 class ExtendedVariable {
@@ -164,6 +168,9 @@ export class AmigaDebugSession extends LoggingDebugSession {
 		const binPath: string = await vscode.commands.executeCommand("amiga.bin-path");
 		const objdumpPath = path.join(binPath, "opt/bin/m68k-amiga-elf-objdump");
 		const dh0Path = path.join(binPath, "..", "dh0");
+		const effectiveDh0 = (args.dh0 && args.dh0 !== '') ? args.dh0 : dh0Path;
+		// dh1 defaults to the directory containing the executable; can be overridden via args.dh1
+		// dh1 is not mounted when a custom dh0 is provided (user manages everything from dh0)
 
 		const gdbPath = path.join(binPath, "opt/bin/m68k-amiga-elf-gdb");
 		const gdbArgs = ['-q', '--interpreter=mi2', '-l', '10'];
@@ -194,9 +201,11 @@ export class AmigaDebugSession extends LoggingDebugSession {
 		let config = new Map<string, string>();
 
 		const exePath = path.dirname(args.program);
-		const exeName = path.basename(args.program) + ".exe";
-		const debugTrigger = args.endcli ? exeName : ':' + exeName;
+		const exeExt = args.exeExt !== undefined ? args.exeExt : '.exe';
+		const exeName = path.basename(args.program) + exeExt;
+		const debugTrigger = (args.noDebug || args.endcli) ? exeName : ':' + exeName;
 		const machine = args.config?.toLowerCase();
+		const effectiveDh1 = (args.dh1 && args.dh1 !== '') ? args.dh1 : exePath;
 
 		if (args.kickstart && !fs.existsSync(args.kickstart)) {
 			this.sendErrorResponse(response, 103, `Unable to find Kickstart ROM at ${args.kickstart}.`);
@@ -288,11 +297,14 @@ export class AmigaDebugSession extends LoggingDebugSession {
 			// delete old filesystem, then add new filesystem so order is correct in config (otherwise won't boot)
 			config.delete('filesystem');
 			config.delete('filesystem2');
-			config.set('filesystem', 'rw,dh0:' + dh0Path);
-			config.set('filesystem2', 'rw,dh1:dh1:' + exePath + ',-128');
+			config.set('filesystem', 'rw,dh0:' + effectiveDh0);
+			if(!args.dh0)
+				config.set('filesystem2', 'rw,dh1:dh1:' + effectiveDh1 + ',-128');
 			// debugging options
-			config.set('debugging_features', 'gdbserver');
-			config.set('debugging_trigger', debugTrigger);
+			if(!args.noDebug) {
+				config.set('debugging_features', 'gdbserver');
+				config.set('debugging_trigger', debugTrigger);
+			}
 			// video
 			config.set('ntsc', args.ntsc ? 'true' : 'false');
 
@@ -398,16 +410,19 @@ export class AmigaDebugSession extends LoggingDebugSession {
 			// nice
 			config.set('automatic_input_grab', "0");
 			// filesystems
-			config.set('hard_drive_0', dh0Path);
-			config.set('hard_drive_1', exePath);
+			config.set('hard_drive_0', effectiveDh0);
+			if(!args.dh0)
+				config.set('hard_drive_1', effectiveDh1);
 			// debugging options
-			config.set('remote_debugger', "20");
-			config.set('remote_debugger_port', "2345");
-			config.set('remote_debugger_trigger', debugTrigger);
+			if(!args.noDebug) {
+				config.set('remote_debugger', "20");
+				config.set('remote_debugger_port', "2345");
+				config.set('remote_debugger_trigger', debugTrigger);
+			}
 			// video
 			config.set('ntsc_mode', args.ntsc ? '1' : '0');
 			// specify savestate dir so we don't overwrite user's default FS-UAE save slots
-			config.set('state_dir', isWin ? path.join(binPath, "win32", "fs-uae") : path.join(binPath, "fs-uae"));
+			config.set('state_dir', path.join(binPath, "fs-uae"));
 
 			if(args.kickstart !== undefined) {
 				config.set('kickstart_file', args.kickstart);
@@ -485,7 +500,7 @@ export class AmigaDebugSession extends LoggingDebugSession {
 
 		const emuPath = useFsUae
 			? (isWin
-				? path.join(binPath, "win32", "fs-uae", "fs-uae.exe")
+				? path.join(binPath, "fs-uae", "fs-uae.exe")
 				: path.join(binPath, "fs-uae", "fs-uae"))
 			: path.join(binPath, "winuae-gdb.exe");
 
@@ -509,39 +524,43 @@ export class AmigaDebugSession extends LoggingDebugSession {
 		if(args.uaelog === undefined)
 			args.uaelog = true;
 
-		if (!fs.existsSync(args.program + ".elf")) {
+		if (!args.noDebug && !fs.existsSync(args.program + ".elf")) {
 			this.sendErrorResponse(response, 103, `Unable to find executable file at ${args.program}.elf.`);
 			return;
 		}
 
-		if (!fs.existsSync(args.program + ".exe")) {
-			this.sendErrorResponse(response, 103, `Unable to find executable file at ${args.program}.exe.`);
+		if (!fs.existsSync(args.program + exeExt)) {
+			this.sendErrorResponse(response, 103, `Unable to find executable file at ${args.program}${exeExt}.`);
 			return;
 		}
 
 		this.args = args;
-		this.symbolTable = new SymbolTable(objdumpPath, args.program + ".elf");
+		if(!args.noDebug)
+			this.symbolTable = new SymbolTable(objdumpPath, args.program + ".elf");
 		this.breakpointMap = new Map();
 		this.fileExistsCache = new Map();
 
-		const ssPath = path.join(dh0Path, "s/startup-sequence");
-		try {
-			let startupSequence = '';
-			if(args.stack !== '')
-				startupSequence += `stack ${args.stack}\n`;
-			if(args.endcli)
-				startupSequence += `cd dh1:\nrun >nil: <nil: ${debugTrigger} >nil: <nil:\nendcli >nil:\n`;
-			else
-				startupSequence += `cd dh1:\n${debugTrigger}\n`;
+		// Only write startup-sequence when using the built-in dh0; with a custom dh0 the user manages it entirely
+		if(!args.dh0) {
+			const ssPath = path.join(effectiveDh0, "s/startup-sequence");
+			try {
+				let startupSequence = '';
+				if(args.stack !== '')
+					startupSequence += `stack ${args.stack}\n`;
+				if(args.endcli)
+					startupSequence += `cd dh1:\nrun >nil: <nil: ${debugTrigger} >nil: <nil:\nendcli >nil:\n`;
+				else
+					startupSequence += `cd dh1:\n${debugTrigger}\n`;
 
-			// memory leak check
-			//startupSequence = 'avail\n' + startupSequence + 'avail\n';
+				// memory leak check
+				//startupSequence = 'avail\n' + startupSequence + 'avail\n';
 
-			// write startup-sequence
-			fs.writeFileSync(ssPath, startupSequence);
-		} catch (err) {
-			this.sendErrorResponse(response, 103, `Failed to rewrite startup sequence at ${ssPath}. ${(err as Error).toString()}`);
-			return;
+				// write startup-sequence
+				fs.writeFileSync(ssPath, startupSequence);
+			} catch (err) {
+				this.sendErrorResponse(response, 103, `Failed to rewrite startup sequence at ${ssPath}. ${(err as Error).toString()}`);
+				return;
+			}
 		}
 
 		this.quit = false;
@@ -573,14 +592,25 @@ export class AmigaDebugSession extends LoggingDebugSession {
 		//emu.stdout.on('data', (data) => { console.log(`stdout: ${data}`); });
 		//emu.stderr.on('data', (data) => { console.log(`stderr: ${data}`); });
 
+		emu.on("error", (err) => {
+			this.sendErrorResponse(response, 103, `Emulator error. ${err.toString()}`);
+		});
+
+		if(args.noDebug) {
+			// Run without debugger: just launch the emulator, no GDB
+			this.started = true;
+			this.sendResponse(response);
+			emu.on("exit", () => {
+				this.sendEvent(new TerminatedEvent());
+			});
+			return;
+		}
+
 		// Handle emulator closing before debugger connects:
 		const handleExit = (code: number, signal: string) => {
 			this.sendErrorResponse(response, 103, `Emulator exited with code/signal ${code ?? signal} before debugger could connect`);
 		};
 		emu.on("exit", handleExit);
-		emu.on("error", (err) => {
-			this.sendErrorResponse(response, 103, `Emulator error. ${err.toString()}`);
-		});
 
 		// init debugger
 		this.miDebugger = new MI2(gdbPath, gdbArgs);
@@ -1515,7 +1545,12 @@ export class AmigaDebugSession extends LoggingDebugSession {
 
 	protected async configurationDoneRequest(response: DebugProtocol.ConfigurationDoneResponse, args: DebugProtocol.ConfigurationDoneArguments): Promise<void> {
 		//this.handleMsg("log", `configurationDoneRequest: stopped = ${this.stopped}\n`);
-		await this.miDebugger.continue(this.currentThreadId);
+		if (this.args.stopOnEntry) {
+			this.sendEvent(new StoppedEvent('entry', this.currentThreadId));
+			this.sendEvent(new CustomStoppedEvent('entry', this.currentThreadId));
+		} else {
+			await this.miDebugger.continue(this.currentThreadId);
+		}
 		this.sendResponse(response);
 	}
 

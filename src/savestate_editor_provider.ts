@@ -116,7 +116,7 @@ class SavestateDocument implements vscode.CustomDocument {
 			}
 
 			emuPath = process.platform === "win32"
-				? path.join(binPath, "win32", "fs-uae", "fs-uae.exe")
+				? path.join(binPath, "fs-uae", "fs-uae.exe")
 				: path.join(binPath, "fs-uae", "fs-uae");
 			emuArgs = [...config].map(([k, v]) => `--${k}=${v}`);
 		}
